@@ -99,10 +99,10 @@ def analyze_log(message):
         print(f"⚠️ Unknown data format: {data}")
         return
 
-    c1 = data.get("service", "?")
-    c2 = data.get("instance", "?")
-    i1 = data.get("level", "?")
-    t1 = data.get("message", "(no message)")
+    service = data.get("service", "?")
+    instance = data.get("instance", "?")
+    level = data.get("level", "?")
+    message = data.get("message", "(no message)")
 
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print(f"🧩 Service:   {service}")
