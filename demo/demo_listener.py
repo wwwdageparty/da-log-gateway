@@ -2,19 +2,31 @@ import asyncio
 import json
 from ably import AblyRealtime
 
-# ---------- Config (Public Demo Keys) ----------
+# ==========================================================
+#  DaSystem Log Gateway — Python Demo Subscriber
+# ==========================================================
+#  ✅ Connects to Ably channel "dademo"
+#  ✅ Prints structured logs received from the Cloudflare Worker
+#  ✅ Safe for public demo use (no local config files)
+# ==========================================================
+
+# ---------- Demo Config ----------
 ABLY_API_KEY = "oVDZ0A.ubTYGA:zSVyaT8TFujR-w1s3hbUpPdkgaSXYd6YjKngg4f1-QU"
 ABLY_CHANNEL_NAME = "dademo"
 
-# ---------- Log analysis / print ----------
+
+# ---------- Log Analysis ----------
 def analyze_log(message):
-    """Parse and print a log message from Ably (robust to a few formats)."""
-    print(f"\n📨 Received message on channel '{getattr(message, 'channel', None)}' name='{getattr(message, 'name', None)}'")
+    """Parse and print log message from Ably (handles JSON or plain text)."""
+
+    print(f"\n📨 Message received: channel='{ABLY_CHANNEL_NAME}', name='{getattr(message, 'name', None)}'")
     data = message.data
 
-    if isinstance(data, dict) and "data" in data:
+    # If message is wrapped (e.g. {"data": {...}}), unwrap
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], (dict, str)):
         data = data["data"]
 
+    # Try to decode JSON if it's a string
     if isinstance(data, str):
         try:
             data = json.loads(data)
@@ -26,19 +38,22 @@ def analyze_log(message):
         print(f"⚠️ Unknown data format: {data}")
         return
 
-    c1 = data.get("c1", "?")
-    c2 = data.get("c2", "?")
-    i1 = data.get("i1", "?")
-    t1 = data.get("t1", "(no message)")
+    # Extract fields (new keys)
+    service = data.get("service", "?")
+    instance = data.get("instance", "?")
+    level = data.get("level", "?")
+    message = data.get("message", "(no message)")
 
+    # Pretty print
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print(f"🧩 Service:   {c1}")
-    print(f"🏷️ Instance:  {c2}")
-    print(f"🔢 Level:     {i1}")
-    print(f"🗒️ Message:   {t1}")
+    print(f"🧩 Service:   {service}")
+    print(f"🏷️ Instance:  {instance}")
+    print(f"🔢 Level:     {level}")
+    print(f"🗒️ Message:   {message}")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-# ---------- Main Ably client ----------
+
+# ---------- Main ----------
 async def main():
     ably = AblyRealtime(ABLY_API_KEY)
     await ably.connection.once_async("connected")
@@ -47,19 +62,21 @@ async def main():
 
     channel = ably.channels.get(ABLY_CHANNEL_NAME)
     await channel.subscribe(analyze_log)
-    print(f"👂 Listening on Ably channel: '{ABLY_CHANNEL_NAME}'")
+    print(f"👂 Listening on channel: '{ABLY_CHANNEL_NAME}'")
 
     try:
-        i_loop = 0
+        loop_counter = 0
         while True:
             await asyncio.sleep(60)
-            i_loop += 1
-            print(f"⏳ Alive check: loop {i_loop}")
+            loop_counter += 1
+            print(f"⏳ Alive check: loop {loop_counter}")
     except asyncio.CancelledError:
         pass
     finally:
         await ably.close()
         print("🔌 Connection closed.")
 
+
 if __name__ == "__main__":
     asyncio.run(main())
+
