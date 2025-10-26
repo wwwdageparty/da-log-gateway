@@ -94,23 +94,29 @@ async function appendLog(request) {
 
   try {
     const body = await request.json();
-    const { c1, c2, i1, t1 } = body;
 
-    // Basic validation
-    if (!c1 || !c2 || i1 === undefined || !t1) {
+    // New public field names
+    const { service, instance, level, message } = body;
+
+    // Validate (use new names)
+    if (!service || !instance || level === undefined || !message) {
       return new Response(
-        JSON.stringify({ error: "Missing one or more required fields (c1, c2, i1, t1)" }),
+        JSON.stringify({
+          error: "Missing one or more required fields (service, instance, level, message)"
+        }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // Insert into database (v1 auto-generated)
+    // Insert into database using internal schema
     await G_DB.prepare(
       `INSERT INTO log1 (c1, c2, i1, t1) VALUES (?, ?, ?, ?)`
-    ).bind(c1, c2, i1, t1).run();
+    ).bind(service, instance, level, message).run();
 
-    // Forward to Ably and Telegram (object form)
+    // Forward the *original* body to Ably
     await forwardToAbly(body);
+
+    // Notify Telegram (use internal mapping)
     await notifyTelegram(body);
 
     return new Response(JSON.stringify({ success: true }), {
@@ -138,30 +144,42 @@ async function queryLogs(request) {
     const filters = [];
     const values = [];
 
-    const c1 = searchParams.get("service_id");
-    const c2 = searchParams.get("instance_id");
-    const i1 = searchParams.get("level");
+    // Public query parameters
+    const service = searchParams.get("service");
+    const instance = searchParams.get("instance");
+    const level = searchParams.get("level");
     const from = searchParams.get("from");
     const to = searchParams.get("to");
     const limit = parseInt(searchParams.get("limit") || "50", 10);
 
-    if (c1) { filters.push("c1 = ?"); values.push(c1); }
-    if (c2) { filters.push("c2 = ?"); values.push(c2); }
-    if (i1) { filters.push("i1 = ?"); values.push(i1); }
+    if (service) { filters.push("c1 = ?"); values.push(service); }
+    if (instance) { filters.push("c2 = ?"); values.push(instance); }
+    if (level) { filters.push("i1 = ?"); values.push(level); }
     if (from) { filters.push("v1 >= ?"); values.push(from); }
     if (to) { filters.push("v1 <= ?"); values.push(to); }
 
     const whereClause = filters.length ? "WHERE " + filters.join(" AND ") : "";
-    const sql = `SELECT * FROM log1 ${whereClause} ORDER BY id DESC LIMIT ?`;
+    const sql = `SELECT id, v1, c1, c2, i1, t1 FROM log1 ${whereClause} ORDER BY id DESC LIMIT ?`;
     values.push(limit);
 
     const result = await G_DB.prepare(sql).bind(...values).all();
 
-    return new Response(JSON.stringify(result.results), {
+    // Map internal names → public response format
+    const data = (result.results || []).map(r => ({
+      id: r.id,
+      created_at: r.v1,
+      service: r.c1,
+      instance: r.c2,
+      level: r.i1,
+      message: r.t1
+    }));
+
+    return new Response(JSON.stringify({ success: true, count: data.length, logs: data }), {
       headers: { "Content-Type": "application/json" },
     });
+
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ success: false, error: err.message }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
@@ -410,7 +428,7 @@ async function notifyTelegram(logData) {
     if (!botToken || !chatId) return;
 
     const apiUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    const msg = `${logData.t1}\n\n🧩 ${logData.c1}/${logData.c2}\n🔢 Level: ${logData.i1}`;
+    const msg = `${logData.message}\n\n🧩 ${logData.service}/${logData.instance}\n🔢 Level: ${logData.level}`;
 
     await fetch(apiUrl, {
       method: "POST",
